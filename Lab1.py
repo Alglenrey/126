@@ -1,41 +1,41 @@
 """
-Food Ordering System Simulation using the OSI Model (Mocked Network Environment)
+Food Ordering System Simulation using OSI Model (Real IP and MAC Addresses)
 
-This Python program simulates a food ordering process using a layered architecture
-that follows the OSI model. Each layer represents a different aspect of network communication,
-moving order data from the customer to the restaurant (server) and receiving confirmation.
-
-Due to sandbox limitations that prevent real socket communication and threading, this version 
-uses a mocked network approach via an internal queue to simulate data transmission without threading.
+This Python program simulates a realistic food ordering process using a layered architecture
+based on the OSI model. It dynamically integrates the actual local IP address and MAC address
+of the user's laptop to closely resemble real network communication. Due to sandbox constraints,
+it uses an internal queue instead of real network sockets and threading.
 
 Layers Implemented:
-1. Physical Layer - Simulates network communication using an internal queue instead of real bit-level operations.
-2. Data Link Layer - Implements MAC addressing and frame transmission.
-3. Network Layer - Simulates IP-like addressing and packet routing (without actual routing).
-4. Transport Layer - Ensures reliable transmission by adding TCP-like sequencing headers.
-5. Session Layer - Manages session states to synchronize communication between the client and server.
-6. Presentation Layer - Handles encoding and decoding of data (Base64) for secure transmission.
-7. Application Layer - Implements an HTTP-like request-response system for placing food orders.
+1. Physical Layer - Simulates data transmission using an internal queue.
+2. Data Link Layer - Dynamically retrieves and incorporates the laptop's real MAC address.
+3. Network Layer - Dynamically retrieves and uses the laptop's actual local IP address for realistic packet headers.
+4. Transport Layer - Adds sequencing headers to ensure ordered data transmission.
+5. Session Layer - Manages session states for client-server communication.
+6. Presentation Layer - Handles Base64 encoding and decoding of messages.
+7. Application Layer - Implements a simplified request-response system for placing food orders.
 
 How it Works:
 - A customer places an order at the Application Layer.
-- The order moves down through all OSI layers, getting encoded, segmented, and framed.
-- The Physical Layer transmits the order to the server (mocked queue instead of sockets).
-- The server receives the order, processes it, and sends back a confirmation.
-- The confirmation moves back up through all OSI layers until the Application Layer displays the message.
+- The order moves through the layers, receiving realistic MAC and IP addresses, sequencing, encoding, and framing.
+- The Physical Layer transmits the order via the mocked queue.
+- The server-side response (confirmation) travels back up through the layers to the Application Layer.
+- The Application Layer displays the confirmation message.
 
 Constraints Met:
-- No external networking libraries (Flask, Django, requests, etc.).
-- Uses only low-level Python features (JSON, base64, etc.).
-- Fully simulates OSI layer communication without real network sockets or threads.
+- No external networking libraries.
+- Uses only standard Python libraries.
+- Fully simulates OSI communication with real network identifiers without actual sockets or threads.
 
-Run the program to simulate an order from a customer named "Al Glenrey" ordering "Pizza".
+Run the program to simulate an order from "Al Glenrey" ordering "Pizza."
 """
 
 import queue
 import base64
 import json
 import time
+import socket
+import uuid
 
 def print_layer(layer_name, message):
     print(f"[{layer_name}] {message}\n")
@@ -67,10 +67,16 @@ class PhysicalLayer:
 class DataLinkLayer:
     def __init__(self, physical_layer):
         self.physical_layer = physical_layer
-        print_layer("Data Link Layer", "✅ Initialized")
+        self.mac_address = self.get_mac_address()
+        print_layer("Data Link Layer", f"✅ Initialized with MAC: {self.mac_address}")
+
+    def get_mac_address(self):
+        mac = uuid.getnode()
+        mac_str = ':'.join(('%012X' % mac)[i:i+2] for i in range(0, 12, 2))
+        return mac_str
 
     def send(self, data):
-        frame = f"MAC_HEADER|{data}"
+        frame = f"{self.mac_address}|{data}"
         print_layer("Data Link Layer", f"📦 Framing data:\n{frame}")
         self.physical_layer.send(frame)
 
@@ -81,16 +87,33 @@ class DataLinkLayer:
 class NetworkLayer:
     def __init__(self, data_link_layer):
         self.data_link_layer = data_link_layer
-        print_layer("Network Layer", "✅ Initialized")
+        self.source_ip = self.get_my_ip()
+        self.destination_ip = "192.168.1.100"
+        print_layer("Network Layer", f"✅ Initialized with IP: {self.source_ip} → {self.destination_ip}")
+
+    def get_my_ip(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(('10.255.255.255', 1))
+            my_ip = s.getsockname()[0]
+        except:
+            my_ip = '127.0.0.1'
+        finally:
+            s.close()
+        return my_ip
 
     def send(self, data):
-        packet = f"IP_HEADER|{data}"
+        packet = f"{self.source_ip}>{self.destination_ip}|{data}"
         print_layer("Network Layer", f"🌍 Routing packet:\n{packet}")
         self.data_link_layer.send(packet)
 
     def receive(self):
         data = self.data_link_layer.receive()
-        return data.split("|", 1)[1] if "|" in data else data
+        if "|" in data:
+            ip_info, payload = data.split("|", 1)
+            print_layer("Network Layer", f"📍 Packet info: {ip_info}")
+            return payload
+        return data
 
 class TransportLayer:
     def __init__(self, network_layer):
@@ -177,6 +200,12 @@ if __name__ == "__main__":
     session.start_session()
     application.place_order("Al Glenrey", "Pizza", 2, "University of the Philippines Cebu, Lahug, Cebu City")
     time.sleep(1)
+
+    # Simulate confirmation coming from server (for demo purposes)
+    encoded_confirmation = base64.b64encode("CONFIRMATION|Order received, preparing Pizza!".encode()).decode()
+    network.send(f"SERVER_MAC|192.168.1.100>{network_layer.source_ip}|SEQ_HEADER|{encoded_confirmation}")
+
     application.receive_confirmation()
-    
+
     print("\n===================  Simulation Complete ===================")
+
